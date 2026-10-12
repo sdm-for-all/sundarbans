@@ -1,0 +1,32 @@
+<style>
+    header { position: relative; z-index: 1000; } /* lets .sdm-panel float below the bar later */
+
+    .sdm-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 48px;
+        padding: 0 12px;
+        background: #1f2937;
+        color: #fff;
+        font-family: system-ui, sans-serif;
+    }
+    .sdm-bar .sdm-title { font-weight: 600; margin-right: auto; }
+    .sdm-bar button {
+        padding: 6px 12px;
+        border: 0;
+        border-radius: 4px;
+        background: #374151;
+        color: #fff;
+        cursor: pointer;
+    }
+    .sdm-bar button:hover { background: #4b5563; }
+</style>
+
+<div class="sdm-bar">
+    <span class="sdm-title">SDM</span>
+
+    <button type="button" id="btn-1">Button 1</button>
+    <button type="button" id="btn-2">Button 2</button>
+    <button type="button" id="btn-3">Button 3</button>
+</div>

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Earth Engine Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { display: flex; flex-direction: column; }
+    header { position: relative; z-index: 1000; }   /* above Leaflet's panes */
+    #map { flex: 1; width: 100%; }                   /* still needs a height, now via flex */
+
+    /* Panels float over the map instead of pushing it down */
+    header .sdm-panel { position: absolute; left: 0; right: 0; top: 100%;
+                        max-height: 60vh; overflow: auto; box-shadow: 0 4px 8px rgba(0,0,0,.2); }
+  </style>
+</head>
+<body>
+
+  <header>
+    {% include "userinputhandler/header.html" %}
+  </header>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+  const map = L.map("map");
+
+  L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    {
+      attribution: "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+      maxZoom: 19
+    }
+  ).addTo(map);
+
+  // Keep a handle on the EE layer so it can be swapped later
+  let eeLayer = L.tileLayer("{{ tile_url|escapejs }}", {
+    opacity: 0.6,
+    attribution: "Google Earth Engine"
+  }).addTo(map);
+
+  function setEELayer(tileUrl) {
+    if (eeLayer) map.removeLayer(eeLayer);
+    eeLayer = L.tileLayer(tileUrl, { opacity: 0.6, attribution: "Google Earth Engine" }).addTo(map);
+  }
+
+  // Fired by the Run button in userinputhandler
+  document.addEventListener("sdm:run", (e) => {
+    console.log("SDM run:", e.detail);
+    // Later: if (e.detail.result.tile_url) setEELayer(e.detail.result.tile_url);
+  });
+
+  map.fitBounds([[6.5, 68.0], [37.0, 97.5]]);  // India
+  </script>
+{% include "info/panel.html" %}
+</body>
+</html>

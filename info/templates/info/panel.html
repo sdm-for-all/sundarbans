@@ -1,0 +1,21 @@
+<style>
+    .info-panel {
+        position: fixed;
+        top: 60px;            /* just below the 48px header bar */
+        right: 12px;
+        width: 320px;
+        max-height: 70vh;
+        overflow: auto;
+        z-index: 900;         /* below the header's 1000 */
+        padding: 12px;
+        background: #fff;
+        border-radius: 6px;
+        box-shadow: 0 4px 8px rgba(0,0,0,.2);
+        font-family: system-ui, sans-serif;
+    }
+</style>
+
+<div class="info-panel" id="info-panel">
+    <h3>Info</h3>
+    <p>Content goes here.</p>
+</div>
