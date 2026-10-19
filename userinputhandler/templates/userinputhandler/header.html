@@ -1,32 +1,141 @@
 <style>
-    header { position: relative; z-index: 1000; } /* lets .sdm-panel float below the bar later */
+    header { position: relative; z-index: 1000; }
 
-    .sdm-bar {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        height: 48px;
-        padding: 0 12px;
-        background: #1f2937;
-        color: #fff;
-        font-family: system-ui, sans-serif;
-    }
-    .sdm-bar .sdm-title { font-weight: 600; margin-right: auto; }
-    .sdm-bar button {
-        padding: 6px 12px;
-        border: 0;
-        border-radius: 4px;
-        background: #374151;
-        color: #fff;
-        cursor: pointer;
-    }
-    .sdm-bar button:hover { background: #4b5563; }
+    .sdm-bar { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px;
+               background: #1f2937; color: #fff; font-family: system-ui, sans-serif; }
+    .sdm-title { flex: 1; font-weight: 600; }
+    .sdm-nav { display: flex; gap: 8px; }
+    .sdm-right { flex: 1; display: flex; justify-content: flex-end; }
+    .sdm-dd { position: relative; }
+
+    .sdm-btn { padding: 6px 12px; border: 0; border-radius: 4px; background: #374151;
+               color: #fff; cursor: pointer; }
+    .sdm-btn:hover { background: #4b5563; }
+
+    .sdm-panel { position: absolute; top: calc(100% + 9px); left: 0; z-index: 1100;
+                 width: 360px; max-height: 70vh; overflow-y: auto; padding: 16px;
+                 background: #fff; color: #111; border-radius: 6px;
+                 box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+    .sdm-panel[hidden] { display: none; }
+
+    #species-q { width: 100%; padding: 6px 8px; box-sizing: border-box; }
+    #species-results { list-style: none; margin: 8px 0; padding: 0; }
+    #species-results li { padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+    #species-results li:hover { background: #e5e7eb; }
+    #species-chosen { font-weight: 600; margin: 8px 0 0; }
 </style>
 
 <div class="sdm-bar">
     <span class="sdm-title">SDM</span>
 
-    <button type="button" id="btn-1">Button 1</button>
-    <button type="button" id="btn-2">Button 2</button>
-    <button type="button" id="btn-3">Button 3</button>
+    <div class="sdm-nav">
+        <div class="sdm-dd">
+            <button type="button" class="sdm-btn" id="btn-1" aria-controls="species-panel">SPECIES SELECT</button>
+            <div id="species-panel" class="sdm-panel" hidden>
+                <h3>Species select</h3>
+                <input type="search" id="species-q" placeholder="Search common or scientific name…" autocomplete="off">
+                <ul id="species-results"></ul>
+                <p id="species-chosen">No species selected</p>
+            </div>
+        </div>
+        <div class="sdm-dd">
+            <button type="button" class="sdm-btn" id="btn-2" aria-controls="envvar-panel">ENVIRONMENTAL VARIABLES</button>
+            <div id="envvar-panel" class="sdm-panel" hidden>
+                {% include "userinputhandler/envvar.html" %}
+            </div>
+        </div>
+    </div>
+
+    <div class="sdm-right">
+        <button type="button" class="sdm-btn" id="run-btn">RUN</button>
+    </div>
 </div>
+
+<script>
+// Open/close the two dropdown panels (only one open at a time)
+(function () {
+    const pairs = [
+        {btn: document.getElementById('btn-1'), panel: document.getElementById('species-panel')},
+        {btn: document.getElementById('btn-2'), panel: document.getElementById('envvar-panel')},
+    ];
+    function closeAll() {
+        pairs.forEach(p => { p.panel.hidden = true; p.btn.setAttribute('aria-expanded', false); });
+    }
+    pairs.forEach(({btn, panel}) => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const open = panel.hidden;
+            closeAll();
+            panel.hidden = !open;
+            btn.setAttribute('aria-expanded', open);
+        });
+    });
+    document.addEventListener('click', e => {
+        if (!pairs.some(p => p.panel.contains(e.target))) closeAll();
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
+})();
+
+// Species search. Picking a species loads that species' variables into the panel.
+(function () {
+    const q = document.getElementById('species-q');
+    const list = document.getElementById('species-results');
+    const chosen = document.getElementById('species-chosen');
+    window.sdmSpeciesId = null;
+    let timer;
+
+    async function searchSpecies() {
+        const url = "{% url 'userinputhandler:species_search' %}?q=" + encodeURIComponent(q.value);
+        const res = await fetch(url);
+        const data = await res.json();
+        list.innerHTML = '';
+        data.results.forEach(b => {
+            const li = document.createElement('li');
+            li.textContent = b.common_name + ' (' + b.scientific_name + ')';
+            li.addEventListener('click', async () => {
+                window.sdmSpeciesId = null;                 // blocks RUN until the load succeeds
+                chosen.textContent = 'Loading ' + b.common_name + '…';
+                const err = await window.sdmLoadEnv(b.id);
+                if (err === null) return;                   // a newer pick replaced this one
+                if (err) {
+                    chosen.textContent = b.common_name + ': ' + err;
+                } else {
+                    window.sdmSpeciesId = b.id;
+                    chosen.textContent = 'Selected: ' + b.common_name;
+                }
+            });
+            list.appendChild(li);
+        });
+    }
+
+    q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(searchSpecies, 250); });
+    searchSpecies();   // fill the list on page load
+})();
+
+// RUN
+document.getElementById('run-btn').addEventListener('click', async (e) => {
+    if (!window.sdmSpeciesId) { alert('Pick a species first'); return; }
+    const ranges = window.getEnvValues();
+    if (!Object.keys(ranges).length) { alert('Variable ranges are still loading'); return; }
+
+    const btn = e.currentTarget, label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'RUNNING…';
+    try {
+        const res = await fetch("{% url 'userinputhandler:run' %}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+            body: JSON.stringify({ranges, species_id: window.sdmSpeciesId}),
+        });
+        const text = await res.text();
+        let result;
+        try { result = JSON.parse(text); }
+        catch { throw new Error(`Server error ${res.status} (see the runserver terminal)`); }
+        if (!res.ok) throw new Error(result.error || 'Run failed');
+        document.dispatchEvent(new CustomEvent('sdm:run', {detail: {ranges, result}}));
+    } catch (err) {
+        alert(err.message);
+    } finally {
+        btn.disabled = false; btn.textContent = label;
+    }
+});
+</script>

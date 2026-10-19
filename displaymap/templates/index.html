@@ -10,9 +10,6 @@
     header { position: relative; z-index: 1000; }   /* above Leaflet's panes */
     #map { flex: 1; width: 100%; }                   /* still needs a height, now via flex */
 
-    /* Panels float over the map instead of pushing it down */
-    header .sdm-panel { position: absolute; left: 0; right: 0; top: 100%;
-                        max-height: 60vh; overflow: auto; box-shadow: 0 4px 8px rgba(0,0,0,.2); }
   </style>
 </head>
 <body>
@@ -49,7 +46,7 @@
   // Fired by the Run button in userinputhandler
   document.addEventListener("sdm:run", (e) => {
     console.log("SDM run:", e.detail);
-    // Later: if (e.detail.result.tile_url) setEELayer(e.detail.result.tile_url);
+    if (e.detail.result.tile_url) setEELayer(e.detail.result.tile_url);
   });
 
   map.fitBounds([[6.5, 68.0], [37.0, 97.5]]);  // India

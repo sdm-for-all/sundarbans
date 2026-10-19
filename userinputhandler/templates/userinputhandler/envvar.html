@@ -1,0 +1,130 @@
+<style>
+    .envvarpanel {
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+        text-transform: none;      /* the button text is uppercase; don't inherit it */
+        font-weight: 400;
+        text-align: left;
+    }
+    .envvarpanel h3 { margin: 0 0 10px; font-size: 15px; }
+    .env-status { margin: 0 0 10px; color: #6b7280; }
+    .env-status:empty { display: none; }
+
+    .env-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+    .env-presets:empty { display: none; }
+    .env-presets button {
+        flex: 1; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px;
+        background: #f3f4f6; color: #111; cursor: pointer; font-size: 13px;
+    }
+    .env-presets button:hover { background: #e5e7eb; }
+    .env-presets button.active { background: #1f2937; color: #fff; border-color: #1f2937; }
+
+    .env-row { margin-bottom: 14px; }
+    .env-row label { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .env-row output { font-variant-numeric: tabular-nums; color: #374151; }
+    .env-row input[type=range] { width: 100%; }
+    .env-range { display: flex; justify-content: space-between; font-size: 11px; color: #6b7280; }
+</style>
+
+<div class="envvarpanel" id="envvarpanel">
+    <h3>Environmental variables</h3>
+    <p class="env-status" id="env-status">Pick a species first.</p>
+    <div class="env-presets" id="env-presets"></div>
+    <div id="env-rows"></div>
+</div>
+
+<script>
+(function () {
+    const ENV_URL   = "{% url 'userinputhandler:env_config' %}";
+    const statusEl  = document.getElementById('env-status');
+    const presetsEl = document.getElementById('env-presets');
+    const rowsEl    = document.getElementById('env-rows');
+    let presets = {}, rows = [], token = 0;
+    const lo = r => r.querySelector('.lo'), hi = r => r.querySelector('.hi');
+
+    function refresh(row, changed) {
+        if (changed && +lo(row).value > +hi(row).value)      // keep lo <= hi
+            (changed === lo(row) ? hi(row) : lo(row)).value = changed.value;
+        row.querySelector('output').textContent =
+            `${lo(row).value} – ${hi(row).value} ${row.dataset.unit}`;
+    }
+
+    window.getEnvValues = () => Object.fromEntries(
+        rows.map(r => [r.dataset.key, [+lo(r).value, +hi(r).value]]));
+
+    function markActive() {
+        const cur = window.getEnvValues();
+        presetsEl.querySelectorAll('[data-preset]').forEach(b => {
+            const v = presets[b.dataset.preset].values;
+            b.classList.toggle('active', Object.keys(v).every(k =>
+                cur[k] && v[k][0] === cur[k][0] && v[k][1] === cur[k][1]));
+        });
+    }
+
+    function applyPreset(key) {
+        const v = presets[key].values;
+        rows.forEach(r => {
+            const [a, b] = v[r.dataset.key];
+            lo(r).value = a; hi(r).value = b; refresh(r);
+        });
+        markActive();
+    }
+
+    function render(cfg) {
+        presets = cfg.presets;
+        presetsEl.innerHTML = ''; rowsEl.innerHTML = '';
+
+        Object.entries(presets).forEach(([key, p]) => {
+            const b = document.createElement('button');
+            b.type = 'button'; b.dataset.preset = key; b.textContent = p.label;
+            b.addEventListener('click', () => applyPreset(key));
+            presetsEl.appendChild(b);
+        });
+
+        rows = cfg.env_vars.map(v => {
+            const row = document.createElement('div');
+            row.className = 'env-row';
+            row.dataset.key = v.key; row.dataset.unit = v.unit;
+            row.innerHTML = `<label><span></span><output></output></label>
+                <input type="range" class="lo"><input type="range" class="hi">
+                <div class="env-range"><span></span><span></span></div>`;
+            row.querySelector('label span').textContent = v.label;
+            row.querySelectorAll('input').forEach(i => { i.min = v.min; i.max = v.max; i.step = v.step; });
+            lo(row).value = v.min; hi(row).value = v.max;
+            const ends = row.querySelectorAll('.env-range span');
+            ends[0].textContent = v.min; ends[1].textContent = v.max;
+            row.querySelectorAll('input').forEach(i =>
+                i.addEventListener('input', () => { refresh(row, i); markActive(); }));
+            rowsEl.appendChild(row);
+            refresh(row);
+            return row;
+        });
+        markActive();
+    }
+
+    // Called by the species picker. Resolves to '' on success, an error message on
+    // failure, or null if a newer selection replaced this one.
+    window.sdmLoadEnv = async function (speciesId) {
+        const mine = ++token;
+        rows = []; presets = {}; presetsEl.innerHTML = ''; rowsEl.innerHTML = '';
+        statusEl.textContent = 'Loading ranges…';
+        try {
+            const res  = await fetch(ENV_URL + '?species_id=' + encodeURIComponent(speciesId));
+            const text = await res.text();
+            let cfg;
+            try { cfg = JSON.parse(text); }
+            catch { throw new Error('Server error ' + res.status + ' (see the runserver terminal)'); }
+            if (!res.ok) throw new Error(cfg.error || 'Could not load variables');
+            if (mine !== token) return null;
+            render(cfg);
+            statusEl.textContent = '';
+            document.dispatchEvent(new CustomEvent('sdm:env', {detail: cfg}));
+            return '';
+        } catch (err) {
+            if (mine !== token) return null;
+            statusEl.textContent = err.message;
+            return err.message;
+        }
+    };
+})();
+</script>

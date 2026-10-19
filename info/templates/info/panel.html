@@ -1,21 +1,59 @@
 <style>
-    .info-panel {
-        position: fixed;
-        top: 60px;            /* just below the 48px header bar */
-        right: 12px;
-        width: 320px;
-        max-height: 70vh;
-        overflow: auto;
-        z-index: 900;         /* below the header's 1000 */
-        padding: 12px;
-        background: #fff;
-        border-radius: 6px;
-        box-shadow: 0 4px 8px rgba(0,0,0,.2);
-        font-family: system-ui, sans-serif;
-    }
+    .info-panel { position: fixed; bottom: 32px; right: 12px; width: 320px; max-height: 60vh;
+                  overflow: auto; z-index: 900; padding: 12px 14px; background: #fff; color: #111;
+                  border-radius: 6px; box-shadow: 0 4px 8px rgba(0,0,0,.2);
+                  font-family: system-ui, sans-serif; font-size: 14px; }
+    .info-panel[hidden] { display: none; }
+    .info-panel h3 { margin: 0 0 2px; font-size: 15px; }
+    .info-preset { margin: 0 0 10px; color: #6b7280; font-size: 13px; }
+    .info-panel ul { margin: 0; padding-left: 18px; }
+    .info-panel li { margin-bottom: 6px; }
 </style>
 
-<div class="info-panel" id="info-panel">
-    <h3>Info</h3>
-    <p>Content goes here.</p>
+<div class="info-panel" id="info-panel" hidden>
+    <h3 id="info-title">Current run</h3>
+    <p class="info-preset" id="info-preset"></p>
+    <ul id="info-list"></ul>
 </div>
+
+<script>
+// The sentences come from the "text" field of each variable in userinputhandler/variables.py.
+// The panel stays hidden until the first RUN, and hides again when the species changes.
+(function () {
+    const panel    = document.getElementById('info-panel');
+    const titleEl  = document.getElementById('info-title');
+    const presetEl = document.getElementById('info-preset');
+    const list     = document.getElementById('info-list');
+    let cfg = null;
+    const n = x => +(+x).toFixed(2);
+
+    document.addEventListener('sdm:env', e => { cfg = e.detail; panel.hidden = true; });
+
+    function presetName(ranges) {
+        for (const p of Object.values(cfg.presets)) {
+            if (Object.keys(p.values).every(k =>
+                ranges[k] && ranges[k][0] === p.values[k][0] && ranges[k][1] === p.values[k][1]))
+                return p.label;
+        }
+        return 'Custom ranges';
+    }
+
+    document.addEventListener('sdm:run', e => {
+        if (!cfg) return;
+        const ranges = e.detail.ranges;
+        titleEl.textContent = cfg.species;
+        presetEl.textContent = presetName(ranges);
+        list.innerHTML = '';
+        cfg.env_vars.forEach(v => {
+            const r = ranges[v.key];
+            if (!r) return;
+            const li = document.createElement('li');
+            li.textContent = v.text
+                .replace('{lo}', n(r[0])).replace('{hi}', n(r[1])).replace('{unit}', v.unit)
+                .replace(/\s+\./, '.');
+            list.appendChild(li);
+        });
+        panel.hidden = false;
+    });
+})();
+</script>
