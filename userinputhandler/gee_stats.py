@@ -4,7 +4,7 @@ import math
 import ee
 from django.core.cache import cache
 
-from .defaults import PRESETS, SPECIES_PRESETS
+from .defaults import PRESETS, SCENARIOS, SPECIES_PRESETS
 from .sdm_model import build_predictors, get_region
 from .variables import VARIABLES
 
@@ -78,3 +78,32 @@ def build_presets(env_vars, species_slug):
             vals[v["key"]] = [snap(f_lo), snap(f_hi)]
         presets[key] = {"label": p["label"], "values": vals}
     return presets
+
+
+def get_scenario_vars(keys):
+    """Shift sliders for the variables of this species that can be shifted."""
+    out = []
+    for k in keys:
+        v = VARIABLES[k]
+        sh = v.get("shift")
+        if not sh:
+            continue
+        lo, hi, step = sh
+        out.append({"key": k, "label": v["label"], "unit": v["unit"],
+                    "step": step, "min": lo, "max": hi})
+    return out
+
+
+def build_scenarios(scenario_vars):
+    """Scenario presets as real shift values, limited to this species' shiftable variables."""
+    by_key = {v["key"]: v for v in scenario_vars}
+    out = {}
+    for key, sc in SCENARIOS.items():
+        vals = {}
+        for k, v in by_key.items():
+            raw = sc["shifts"].get(k, 0)
+            clamped = max(v["min"], min(v["max"], raw))
+            vals[k] = round(round(clamped / v["step"]) * v["step"], 4)
+        if key == "baseline" or any(vals.values()):
+            out[key] = {"label": sc["label"], "values": vals}
+    return out

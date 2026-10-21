@@ -112,11 +112,11 @@
     searchSpecies();   // fill the list on page load
 })();
 
-// RUN
+// RUN: sends whatever the current mode needs (ranges in Filter mode, shifts in Scenario mode)
 document.getElementById('run-btn').addEventListener('click', async (e) => {
     if (!window.sdmSpeciesId) { alert('Pick a species first'); return; }
-    const ranges = window.getEnvValues();
-    if (!Object.keys(ranges).length) { alert('Variable ranges are still loading'); return; }
+    const payload = window.getRunPayload();
+    if (!payload) { alert('Variable ranges are still loading'); return; }
 
     const btn = e.currentTarget, label = btn.textContent;
     btn.disabled = true; btn.textContent = 'RUNNING…';
@@ -124,14 +124,14 @@ document.getElementById('run-btn').addEventListener('click', async (e) => {
         const res = await fetch("{% url 'userinputhandler:run' %}", {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
-            body: JSON.stringify({ranges, species_id: window.sdmSpeciesId}),
+            body: JSON.stringify({...payload, species_id: window.sdmSpeciesId}),
         });
         const text = await res.text();
         let result;
         try { result = JSON.parse(text); }
         catch { throw new Error(`Server error ${res.status} (see the runserver terminal)`); }
         if (!res.ok) throw new Error(result.error || 'Run failed');
-        document.dispatchEvent(new CustomEvent('sdm:run', {detail: {ranges, result}}));
+        document.dispatchEvent(new CustomEvent('sdm:run', {detail: {...payload, result}}));
     } catch (err) {
         alert(err.message);
     } finally {

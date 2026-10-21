@@ -23,8 +23,14 @@ LEGACY = {
     "pitta_nympha": {
         "asset": f"{ASSET_ROOT}/sdm_suitability",
         "variables": ["bio09", "bio14", "elevation", "slope", "TCC"],
+        "n_models": 0,          # no saved models yet, so Scenario mode is unavailable
     },
 }
+
+# Scenario mode re-scores with the saved models (<asset>__rf_0, __rf_1, ...).
+# Each one is a 500-tree forest evaluated on every map tile, so lower this
+# (for example to 5) if scenario maps are slow to draw or Earth Engine times out.
+SCENARIO_MODELS_USED = 10
 
 # Map styling for the returned tiles (0 = unsuitable, 1 = highly suitable)
 VIS = {"min": 0, "max": 1,
@@ -63,7 +69,11 @@ def get_model(scientific_name):
         if not keys:
             raise ModelNotFound(
                 f"The model for {scientific_name} has no usable 'variables' property.")
-        info = {"asset": asset, "variables": keys}
+        try:
+            n_models = int(props.get("n_models", 0) or 0)
+        except (TypeError, ValueError):
+            n_models = 0
+        info = {"asset": asset, "variables": keys, "n_models": n_models}
         cache.set(cache_key, info, 600)     # failures are not cached, so a finished export shows up at once
     return info
 
@@ -93,4 +103,54 @@ def run_sdm(ranges, asset):
         mask = mask.And(b.gte(lo)).And(b.lte(hi))
 
     image = ee.Image(asset).updateMask(mask)
+    return image.getMapId(VIS)["tile_fetcher"].url_format
+
+
+# ---------------------------------------------------------------------------
+# Scenario mode: re-score with the saved models, using shifted conditions
+# ---------------------------------------------------------------------------
+def classifier_assets(asset, n_models):
+    return [f"{asset}__rf_{i}" for i in range(min(n_models, SCENARIO_MODELS_USED))]
+
+
+def scenario_ready(asset):
+    """True if the first saved model exists in Earth Engine."""
+    try:
+        ee.data.getAsset(f"{asset}__rf_0")
+        return True
+    except ee.EEException:
+        return False
+
+
+def build_model_inputs(keys, shifts):
+    """
+    The predictors exactly as the models were trained on them (same band names, same
+    order, same units), with each shift applied in slider units first.
+    """
+    bands = []
+    for k in keys:
+        v = VARIABLES[k]
+        img = v["build"]()
+        s = shifts.get(k, 0)
+        if s:
+            img = img.add(s)
+        lo, hi = v.get("bounds", (None, None))
+        if lo is not None:
+            img = img.max(lo)
+        if hi is not None:
+            img = img.min(hi)
+        bands.append(img.multiply(v.get("model_scale", 1)).rename(k))
+    land = ee.Image("USGS/SRTMGL1_003").select("elevation").gt(0)
+    return ee.Image.cat(bands).updateMask(land)
+
+
+def run_scenario(shifts, asset, keys, n_models):
+    """
+    shifts = {"bio01": 2.0, ...} (slider units; missing = no change)  ->  tile URL.
+    Every saved model re-scores every place with the shifted conditions, and the
+    scores are averaged. Nothing is retrained.
+    """
+    inputs = build_model_inputs(keys, shifts)
+    maps = [inputs.classify(ee.Classifier.load(a)) for a in classifier_assets(asset, n_models)]
+    image = ee.ImageCollection.fromImages(maps).mean()
     return image.getMapId(VIS)["tile_fetcher"].url_format

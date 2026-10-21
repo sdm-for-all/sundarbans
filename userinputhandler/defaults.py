@@ -22,3 +22,18 @@ SPECIES_PRESETS = {
             "popdens": [0.05, 0.4], "ntl": [0.05, 0.4], "ndvi": [0.4, 1.0]}},
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# SCENARIO mode presets. Unlike the Filter presets above these are real amounts,
+# in each variable's own unit (for example +2 means 2 degrees C warmer), so they work
+# for any species. Variables a species doesn't use are ignored, and a scenario that
+# touches none of a species' variables is hidden for it.
+# ---------------------------------------------------------------------------
+SCENARIOS = {
+    "baseline":   {"label": "No change",  "shifts": {}},
+    "warmer_2c":  {"label": "+2 °C",      "shifts": {"bio01": 2, "bio09": 2}},
+    "drier":      {"label": "Drier",      "shifts": {"bio12": -150, "bio14": -10}},
+    "more_urban": {"label": "More urban", "shifts": {"popdens": 2000, "ntl": 5}},
+    "less_green": {"label": "Less green", "shifts": {"TCC": -20, "ndvi": -0.15}},
+}

@@ -1,59 +1,148 @@
 <style>
-    .info-panel { position: fixed; bottom: 32px; right: 12px; width: 320px; max-height: 60vh;
-                  overflow: auto; z-index: 900; padding: 12px 14px; background: #fff; color: #111;
+    .info-panel { position: fixed; bottom: 32px; right: 12px; width: 330px; max-height: 62vh;
+                  overflow: auto; z-index: 900; padding: 10px 14px; background: #fff; color: #111;
                   border-radius: 6px; box-shadow: 0 4px 8px rgba(0,0,0,.2);
-                  font-family: system-ui, sans-serif; font-size: 14px; }
-    .info-panel[hidden] { display: none; }
-    .info-panel h3 { margin: 0 0 2px; font-size: 15px; }
-    .info-preset { margin: 0 0 10px; color: #6b7280; font-size: 13px; }
+                  font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.4; }
+    .info-panel h3 { margin: 0 0 6px; font-size: 15px; }
+    .info-panel details { margin-bottom: 8px; }
+    .info-panel details:last-child { margin-bottom: 0; }
+    .info-panel summary { cursor: pointer; font-weight: 600; margin-bottom: 4px; }
+    .info-panel p { margin: 0 0 6px; }
     .info-panel ul { margin: 0; padding-left: 18px; }
     .info-panel li { margin-bottom: 6px; }
+    .info-note { color: #6b7280; font-size: 13px; }
+    .info-preset { color: #6b7280; font-size: 13px; margin: 0 0 6px; }
+
+    /* colour legend */
+    .legend-bar { height: 10px; border-radius: 5px; margin: 6px 0 2px; background: #ddd; }
+    .legend-labels { display: flex; justify-content: space-between; font-size: 11px; color: #6b7280; }
 </style>
 
-<div class="info-panel" id="info-panel" hidden>
-    <h3 id="info-title">Current run</h3>
-    <p class="info-preset" id="info-preset"></p>
-    <ul id="info-list"></ul>
+<div class="info-panel" id="info-panel">
+    <h3 id="info-title">About this map</h3>
+
+    <details open>
+        <summary id="how-title">How to read this map</summary>
+        <div id="how-body"></div>
+        <div id="legend" hidden>
+            <div class="legend-bar" id="legend-bar"></div>
+            <div class="legend-labels"><span id="legend-min"></span><span>suitability</span><span id="legend-max"></span></div>
+        </div>
+    </details>
+
+    <details open id="run-section" hidden>
+        <summary id="run-title">Current run</summary>
+        <p class="info-preset" id="info-preset"></p>
+        <ul id="info-list"></ul>
+    </details>
 </div>
 
 <script>
-// The sentences come from the "text" field of each variable in userinputhandler/variables.py.
-// The panel stays hidden until the first RUN, and hides again when the species changes.
+// ==========================================================================
+// EDIT THE WORDING HERE. One entry per mode; each paragraph is a string.
+// The per-variable sentences of a Filter run come from the "text" field of each
+// variable in userinputhandler/variables.py.
+// ==========================================================================
 (function () {
-    const panel    = document.getElementById('info-panel');
-    const titleEl  = document.getElementById('info-title');
-    const presetEl = document.getElementById('info-preset');
-    const list     = document.getElementById('info-list');
-    let cfg = null;
+    const MODE_TEXT = {
+        filter: {
+            title: 'Filter mode: hide places',
+            paragraphs: [
+                'The colours show how suitable each 1 km square is for the bird, scored from 0 to 1 by a model trained beforehand on real sightings. That score does not change.',
+                'Each slider sets a range for one condition. A square stays on the map only if it falls inside every range you set; the rest are hidden. The squares that remain keep their original colours.',
+                'Widening a range shows more of the map and narrowing it shows less. Narrowing never makes a place more suitable.',
+            ],
+        },
+        scenario: {
+            title: 'Scenario mode: re-score places',
+            paragraphs: [
+                'The map is recalculated by the same trained models, this time with the conditions changed. Each slider shifts one condition up or down in every square (for example +2 °C), so places keep their real local differences.',
+                'The colours show the new suitability score, 0 to 1. Nothing is retrained, and the models only know the range of conditions in the bird\'s records. Conditions beyond that range are treated like the most extreme condition the model has seen, so very large shifts are not reliable.',
+            ],
+        },
+    };
+    const RUN_TITLE = {filter: 'Current run: filter', scenario: 'Current run: scenario'};
     const n = x => +(+x).toFixed(2);
 
-    document.addEventListener('sdm:env', e => { cfg = e.detail; panel.hidden = true; });
+    const $ = id => document.getElementById(id);
+    let cfg = null, mode = 'filter';
 
-    function presetName(ranges) {
-        for (const p of Object.values(cfg.presets)) {
-            if (Object.keys(p.values).every(k =>
-                ranges[k] && ranges[k][0] === p.values[k][0] && ranges[k][1] === p.values[k][1]))
+    function showMode() {
+        const t = MODE_TEXT[mode];
+        $('how-title').textContent = t.title;
+        const body = $('how-body'); body.innerHTML = '';
+        t.paragraphs.forEach(p => { const el = document.createElement('p'); el.textContent = p; body.appendChild(el); });
+    }
+
+    function showLegend(l) {
+        $('legend-bar').style.background = 'linear-gradient(to right, ' + l.palette.join(', ') + ')';
+        $('legend-min').textContent = n(l.min);
+        $('legend-max').textContent = n(l.max);
+        $('legend').hidden = false;
+    }
+
+    showMode();    // the Filter explanation is visible from the start
+
+    document.addEventListener('sdm:env', e => {
+        cfg = e.detail;
+        if (cfg.legend) showLegend(cfg.legend);
+        $('run-section').hidden = true;                 // a new species clears the old run
+    });
+
+    document.addEventListener('sdm:mode', e => { mode = e.detail.mode; showMode(); });
+
+    function presetName(list, values) {
+        for (const p of Object.values(list)) {
+            if (Object.keys(p.values).every(k => values[k] !== undefined && n(p.values[k]) === n(values[k])))
                 return p.label;
         }
-        return 'Custom ranges';
+        return null;
     }
 
     document.addEventListener('sdm:run', e => {
         if (!cfg) return;
-        const ranges = e.detail.ranges;
-        titleEl.textContent = cfg.species;
-        presetEl.textContent = presetName(ranges);
+        const d = e.detail, list = $('info-list');
+        mode = d.mode || 'filter';
+        showMode();
+        $('run-title').textContent = RUN_TITLE[mode];
         list.innerHTML = '';
-        cfg.env_vars.forEach(v => {
-            const r = ranges[v.key];
-            if (!r) return;
-            const li = document.createElement('li');
-            li.textContent = v.text
-                .replace('{lo}', n(r[0])).replace('{hi}', n(r[1])).replace('{unit}', v.unit)
-                .replace(/\s+\./, '.');
-            list.appendChild(li);
-        });
-        panel.hidden = false;
+
+        if (mode === 'scenario') {
+            const name = presetName(cfg.scenario.presets, d.shifts);
+            $('info-preset').textContent = cfg.species + ' · ' + (name || 'Custom scenario');
+            let changed = 0;
+            cfg.scenario.vars.forEach(v => {
+                const s = d.shifts[v.key];
+                if (!s) return;
+                changed++;
+                const li = document.createElement('li');
+                li.textContent = v.label + ' shifted by ' + (s > 0 ? '+' : '') + n(s) + (v.unit ? ' ' + v.unit : '') + ' everywhere.';
+                list.appendChild(li);
+            });
+            if (!changed) {
+                const li = document.createElement('li');
+                li.textContent = 'No condition was changed, so this is the models\' score for current conditions.';
+                list.appendChild(li);
+            }
+        } else {
+            // Filter presets hold [low, high] pairs, so they are compared pair by pair
+            let label = null;
+            for (const p of Object.values(cfg.presets)) {
+                if (Object.keys(p.values).every(k => d.ranges[k] &&
+                        n(d.ranges[k][0]) === n(p.values[k][0]) && n(d.ranges[k][1]) === n(p.values[k][1]))) { label = p.label; break; }
+            }
+            $('info-preset').textContent = cfg.species + ' · ' + (label || 'Custom ranges');
+            cfg.env_vars.forEach(v => {
+                const r = d.ranges[v.key];
+                if (!r) return;
+                const li = document.createElement('li');
+                li.textContent = v.text
+                    .replace('{lo}', n(r[0])).replace('{hi}', n(r[1])).replace('{unit}', v.unit)
+                    .replace(/\s+\./, '.');
+                list.appendChild(li);
+            });
+        }
+        $('run-section').hidden = false;
     });
 })();
 </script>
