@@ -27,6 +27,10 @@ TO SUPPORT A BRAND-NEW VARIABLE
 """
 import ee
 
+# Sundarbans settings. Keep identical to SEA_COUNTRIES and UTM_EPSG in the notebook CONFIG cell.
+SEA_COUNTRIES = ["Bangladesh", "India"]
+UTM_EPSG = "EPSG:32645"
+
 
 def _srtm():
     return ee.Image("USGS/SRTMGL1_003")
@@ -41,6 +45,28 @@ def _median(collection_id, band, start, end):
             .filterDate(start, end)
             .select(band)
             .median())
+
+
+def _gsw(band):
+    return ee.Image("JRC/GSW1_4/GlobalSurfaceWater").select(band).unmask(0)
+
+
+def _salinity():
+    """HYCOM surface salinity (psu), March-May 2020 mean, spread inland by a 30 km focal mean.
+    Must match the 'salinity' block in the Sundarbans notebook (or SALINITY_ASSET if you set one)."""
+    hycom = ee.ImageCollection("HYCOM/sea_temp_salinity")
+    raw = (hycom.filterDate("2020-03-01", "2020-06-01").select("salinity_0").mean()
+           .multiply(0.001).add(20)
+           .reproject(hycom.first().projection()))
+    return raw.unmask(raw.focalMean(30000, "circle", "meters")).rename("salinity")
+
+
+def _dist_coast():
+    """Distance (km) from each land pixel to the nearest sea pixel, from country polygons."""
+    countries = (ee.FeatureCollection("USDOS/LSIB_SIMPLE/2017")
+                 .filter(ee.Filter.inList("country_na", SEA_COUNTRIES)))
+    land = ee.Image(0).paint(countries, 1).reproject(UTM_EPSG, None, 1000)
+    return land.fastDistanceTransform(256).sqrt().select([0]).rename("dist_coast")
 
 
 VARIABLES = {
@@ -97,6 +123,25 @@ VARIABLES = {
         "build": lambda: _median("MODIS/061/MOD13A2", "NDVI", "2020-01-01", "2020-12-31")
                          .multiply(0.0001),
         "shift": (-0.3, 0.3, 0.05), "bounds": (-1, 1),
+    },
+    # --- freshwater, salinity and tides (Sundarbans) --------------------------------
+    "water_occ": {
+        "label": "Surface water occurrence", "unit": "%", "step": 1, "fallback": (0, 100),
+        "text": "Surface water present between {lo} and {hi} {unit} of the time.",
+        "build": lambda: _gsw("occurrence"),
+        "shift": (-20, 20, 1), "bounds": (0, 100),
+    },
+    "water_season": {
+        "label": "Months with water", "unit": "months", "step": 1, "fallback": (0, 12),
+        "text": "Surface water present between {lo} and {hi} {unit} per year.",
+        "build": lambda: _gsw("seasonality"),
+        "shift": (-3, 3, 1), "bounds": (0, 12),
+    },
+    "dist_coast": {
+        "label": "Distance to coast", "unit": "km", "step": 5, "fallback": (0, 150),
+        "text": "Distance to the open coast between {lo} and {hi} {unit}.",
+        "build": _dist_coast,
+        "shift": None,
     },
     # --- human footprint ----------------------------------------------------------
     "popdens": {

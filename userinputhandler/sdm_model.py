@@ -16,6 +16,11 @@ log = logging.getLogger(__name__)
 # So adding a species = run its notebook + add a Bird row. No code changes.
 # ---------------------------------------------------------------------------
 ASSET_ROOT = f"projects/{os.environ['EE_PROJECT']}/assets/sdm"   # project id comes from .env
+# Sundarbans study area. Identical to REGION_BBOX in the notebook CONFIG cell.
+REGION_BBOX = [88.0, 21.4, 90.2, 22.8]   # west, south, east, north
+def region():
+    return ee.Geometry.Rectangle(REGION_BBOX, geodesic=False)
+
 
 # Models exported BEFORE the convention existed (no "variables" property).
 # Delete an entry once that species has been re-exported with the new notebook.
@@ -27,7 +32,8 @@ LEGACY = {
     },
 }
 
-# Scenario mode re-scores with the saved models (<asset>__rf_0, __rf_1, ...).
+# Scenario mode re-scores with models rebuilt from the saved training points
+# (<asset>__train_0, __train_1, ...) and the map's "seeds" property, exactly as the notebooks save them.
 # Each one is a 500-tree forest evaluated on every map tile, so lower this
 # (for example to 5) if scenario maps are slow to draw or Earth Engine times out.
 SCENARIO_MODELS_USED = 10
@@ -73,7 +79,8 @@ def get_model(scientific_name):
             n_models = int(props.get("n_models", 0) or 0)
         except (TypeError, ValueError):
             n_models = 0
-        info = {"asset": asset, "variables": keys, "n_models": n_models}
+        seeds = [int(x) for x in str(props.get("seeds", "")).split(",") if x.strip().lstrip("-").isdigit()]
+        info = {"asset": asset, "variables": keys, "n_models": min(n_models, len(seeds)), "seeds": seeds}
         cache.set(cache_key, info, 600)     # failures are not cached, so a finished export shows up at once
     return info
 
@@ -82,7 +89,7 @@ def build_predictors(keys):
     """The chosen variables as one image, in the same units the sliders use."""
     bands = [VARIABLES[k]["build"]().rename(k) for k in keys]
     land = ee.Image("USGS/SRTMGL1_003").select("elevation").gt(0)   # same ocean mask as the notebooks
-    return ee.Image.cat(bands).updateMask(land)
+    return ee.Image.cat(bands).updateMask(land).clip(region())
 
 
 def get_region(asset):
@@ -109,14 +116,13 @@ def run_sdm(ranges, asset):
 # ---------------------------------------------------------------------------
 # Scenario mode: re-score with the saved models, using shifted conditions
 # ---------------------------------------------------------------------------
-def classifier_assets(asset, n_models):
-    return [f"{asset}__rf_{i}" for i in range(min(n_models, SCENARIO_MODELS_USED))]
+TRAIN_SCALE = 1000   # same grain_size the notebooks used when sampling predictors
 
 
 def scenario_ready(asset):
-    """True if the first saved model exists in Earth Engine."""
+    """True if the first saved training table exists in Earth Engine."""
     try:
-        ee.data.getAsset(f"{asset}__rf_0")
+        ee.data.getAsset(f"{asset}__train_0")
         return True
     except ee.EEException:
         return False
@@ -141,16 +147,30 @@ def build_model_inputs(keys, shifts):
             img = img.min(hi)
         bands.append(img.multiply(v.get("model_scale", 1)).rename(k))
     land = ee.Image("USGS/SRTMGL1_003").select("elevation").gt(0)
-    return ee.Image.cat(bands).updateMask(land)
+    return ee.Image.cat(bands).updateMask(land).clip(region())
 
 
-def run_scenario(shifts, asset, keys, n_models):
+def rebuild_classifier(asset, i, keys, seed):
+    """Retrain run i's forest (probability mode) from its saved training points, as in the notebook."""
+    pts = ee.FeatureCollection(f"{asset}__train_{i}")
+    train = build_model_inputs(keys, {}).sampleRegions(
+        collection=pts, properties=["PresAbs"], scale=TRAIN_SCALE, geometries=True)
+    return (ee.Classifier.smileRandomForest(
+                numberOfTrees=500, variablesPerSplit=None, minLeafPopulation=10,
+                bagFraction=0.5, maxNodes=None, seed=seed)
+            .setOutputMode("PROBABILITY")
+            .train(train, "PresAbs", keys))
+
+
+def run_scenario(shifts, asset, keys, n_models, seeds):
     """
     shifts = {"bio01": 2.0, ...} (slider units; missing = no change)  ->  tile URL.
     Every saved model re-scores every place with the shifted conditions, and the
     scores are averaged. Nothing is retrained.
     """
     inputs = build_model_inputs(keys, shifts)
-    maps = [inputs.classify(ee.Classifier.load(a)) for a in classifier_assets(asset, n_models)]
-    image = ee.ImageCollection.fromImages(maps).mean()
+    n = min(n_models, SCENARIO_MODELS_USED, len(seeds))
+    maps = [inputs.classify(rebuild_classifier(asset, i, keys, seeds[i])) for i in range(n)]
+    image = (ee.ImageCollection.fromImages(maps).mean()
+             .updateMask(ee.Image(asset).mask()))     # only where the saved Sundarbans map exists
     return image.getMapId(VIS)["tile_fetcher"].url_format

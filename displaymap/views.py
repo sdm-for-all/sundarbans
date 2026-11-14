@@ -4,8 +4,6 @@ from django.shortcuts import render
 # under the Habitat Prediction and Analysis Using GEE cell of the Species_Distribution_Modeling.ipynb notebook
 import os, ee 
 ee.Initialize(project=os.environ["EE_PROJECT"])
-"""  Note: Later on I will NOT need to initialize in this view
-because it'll just display the map   """
 
 def index(request):
     image = ee.Image("USGS/SRTMGL1_003")  # elevation

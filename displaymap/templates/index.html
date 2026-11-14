@@ -33,11 +33,14 @@
   ).addTo(map);
 
   // Keep a handle on the EE layer so it can be swapped later
-  let eeLayer = L.tileLayer("{{ tile_url|escapejs }}", {
-    opacity: 0.6,
-    attribution: "Google Earth Engine"
-  }).addTo(map);
+  let eeLayer = null // L.tileLayer("{{ tile_url|escapejs }}", {
+    //opacity: 0.6,
+    //attribution: "Google Earth Engine"
+  //}).addTo(map);  
+  // used to have elevation for the whole world, no need to display that all the time though!
+  // the elevation map still exists in views.py for the actual bird models
 
+  
   function setEELayer(tileUrl) {
     if (eeLayer) map.removeLayer(eeLayer);
     eeLayer = L.tileLayer(tileUrl, { opacity: 0.6, attribution: "Google Earth Engine" }).addTo(map);
@@ -49,7 +52,8 @@
     if (e.detail.result.tile_url) setEELayer(e.detail.result.tile_url);
   });
 
-  map.fitBounds([[6.5, 68.0], [37.0, 97.5]]);  // India
+  map.fitBounds([[21.4, 88.0], [22.8, 90.2]]);  // BOUNDING BOX  BBOX
+  //[88.0, 21.4], [90.2, 22.8]
   </script>
 {% include "info/panel.html" %}
 </body>

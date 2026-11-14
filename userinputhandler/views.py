@@ -110,7 +110,7 @@ def _run_scenario(body, bird, model):
             clean[v["key"]] = s
 
     return JsonResponse({"tile_url": run_scenario(
-        clean, model["asset"], model["variables"], model["n_models"])})
+        clean, model["asset"], model["variables"], model["n_models"], model.get("seeds", []))})
 
 
 @require_POST
